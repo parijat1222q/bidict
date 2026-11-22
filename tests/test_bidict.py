@@ -994,6 +994,23 @@ def test_deepcopy_preserves_owner_cycle(bi_t: BT[t.Any, t.Any], as_key: bool, in
 
 
 @pytest.mark.parametrize('bi_t', bidict_types)
+def test_deepcopy_preserves_subclass_instance_state(bi_t: BT[t.Any, t.Any]) -> None:
+    """Extra per-instance state a subclass carries (e.g. via __reduce__) survives deepcopy."""
+
+    class Tagged(bi_t):  # type: ignore[valid-type, misc]
+        def __reduce__(self) -> tuple[t.Any, ...]:
+            return type(self), (dict(self),), {'tag': self.tag}
+
+    bi = Tagged({1: 'one'})
+    bi.__dict__['tag'] = ['metadata']
+    cp = deepcopy(bi)
+    assert cp.tag == bi.tag
+    assert cp.tag is not bi.tag
+    assert dict(cp) == dict(bi)
+    assert cp.inverse.inverse is cp
+
+
+@pytest.mark.parametrize('bi_t', bidict_types)
 @pytest.mark.parametrize('inverse_first', [False, True])
 def test_deepcopy_preserves_shared_inverse(bi_t: BT[t.Any, t.Any], inverse_first: bool) -> None:
     bi = bi_t({1: -1, 2: -2})

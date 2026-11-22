@@ -699,6 +699,12 @@ class BidictBase(BidirectionalMapping[KT, VT]):
         memo[id(self)] = inst
         memo[id(self.inverse)] = inst.inverse
         inst._init_from(deepcopy(dict(self.items()), memo))
+        # Restore any extra instance state a subclass carries (e.g. attributes that its
+        # __reduce__ would round-trip), which the fresh instance does not have yet.
+        internal = set(inst.__dict__)
+        extra = {k: v for k, v in self.__dict__.items() if k not in internal}
+        if extra:
+            inst.__dict__.update(deepcopy(extra, memo))
         return inst
 
     def copy(self) -> t.Self:
