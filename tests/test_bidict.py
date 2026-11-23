@@ -1011,6 +1011,51 @@ def test_deepcopy_preserves_subclass_instance_state(bi_t: BT[t.Any, t.Any]) -> N
 
 
 @pytest.mark.parametrize('bi_t', bidict_types)
+def test_deepcopy_overrides_init_created_subclass_state(bi_t: BT[t.Any, t.Any]) -> None:
+    """Subclass state initialized in __init__ is restored to the source's value, not the default."""
+
+    class Tagged(bi_t):  # type: ignore[valid-type, misc]
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.tag = ['default']
+
+        def __reduce__(self) -> tuple[t.Any, ...]:
+            return type(self), (dict(self),), {'tag': self.tag}
+
+    bi = Tagged({1: 'one'})
+    bi.tag = ['edited']
+    cp = deepcopy(bi)
+    assert cp.tag == ['edited']
+    assert cp.tag is not bi.tag
+    assert dict(cp) == dict(bi)
+    assert cp.inverse.inverse is cp
+
+
+@pytest.mark.parametrize('bi_t', bidict_types)
+def test_deepcopy_preserves_slotted_subclass_state(bi_t: BT[t.Any, t.Any]) -> None:
+    """Subclass state held in __slots__ (invisible to the instance dict) survives deepcopy."""
+
+    class Slotted(bi_t):  # type: ignore[valid-type, misc]
+        __slots__ = ('tag',)
+
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.tag = ['default']
+
+        def __reduce__(self) -> tuple[t.Any, ...]:
+            return type(self), (dict(self),), {'tag': self.tag}
+
+    bi = Slotted({1: 'one'})
+    bi.tag = ['edited']
+    cp = deepcopy(bi)
+    assert cp.tag == ['edited']
+    assert cp.tag is not bi.tag
+    assert 'tag' not in cp.__dict__
+    assert dict(cp) == dict(bi)
+    assert cp.inverse.inverse is cp
+
+
+@pytest.mark.parametrize('bi_t', bidict_types)
 @pytest.mark.parametrize('inverse_first', [False, True])
 def test_deepcopy_preserves_shared_inverse(bi_t: BT[t.Any, t.Any], inverse_first: bool) -> None:
     bi = bi_t({1: -1, 2: -2})

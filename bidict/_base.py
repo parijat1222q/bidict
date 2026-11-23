@@ -60,6 +60,13 @@ Unwrites: t.TypeAlias = list[tuple[t.Any, ...]]
 # keys() and items() methods known to return dict views, i.e. dict_keys and dict_items (or subclasses of them).
 _DICT_VIEW_METHODS: t.Final = ((dict.keys, dict.items), (OrderedDict.keys, OrderedDict.items))
 
+# Instance attributes that make up a bidict's own machinery: the backing mappings, the cached
+# inverse wiring, the ordered bidict's node bookkeeping, and a frozen bidict's cached hash.
+# __deepcopy__ leaves these to the fresh instance and _init_from, and restores everything else.
+_INTERNAL_ATTRS: t.Final = frozenset({
+    '_fwdm', '_invm', '_inv', '_invweak', '_sntl', '_node_by_korv', '_bykey', '_hash',
+})
+
 
 class BidictKeysView(KeysView[KT], ValuesView[KT]):
     """Since the keys of a bidict are the values of its inverse (and vice versa),
@@ -699,12 +706,27 @@ class BidictBase(BidirectionalMapping[KT, VT]):
         memo[id(self)] = inst
         memo[id(self.inverse)] = inst.inverse
         inst._init_from(deepcopy(dict(self.items()), memo))
-        # Restore any extra instance state a subclass carries (e.g. attributes that its
-        # __reduce__ would round-trip), which the fresh instance does not have yet.
-        internal = set(inst.__dict__)
-        extra = {k: v for k, v in self.__dict__.items() if k not in internal}
+        # Restore any extra per-instance state a subclass carries, mirroring the state the
+        # default copy protocol applies from __reduce_ex__: every instance-dict entry beyond
+        # the bidict machinery, and any state held in __slots__ (invisible to the instance
+        # dict). The fresh instance may have initialized the same attributes to defaults in
+        # __init__, so overwrite rather than only fill gaps. Deep-copy through the same memo
+        # so references to this bidict or its inverse resolve to the copies.
+        extra = {k: v for (k, v) in self.__dict__.items() if k not in _INTERNAL_ATTRS}
         if extra:
             inst.__dict__.update(deepcopy(extra, memo))
+        slotted: dict[str, t.Any] = {}
+        for cls in type(self).__mro__:
+            slots = getattr(cls, '__slots__', ())
+            if isinstance(slots, str):
+                slots = (slots,)
+            for slot in slots:
+                if slot in ('__dict__', '__weakref__') or slot in _INTERNAL_ATTRS or slot in slotted:
+                    continue
+                if hasattr(self, slot):
+                    slotted[slot] = getattr(self, slot)
+        for slot, value in deepcopy(slotted, memo).items():
+            setattr(inst, slot, value)
         return inst
 
     def copy(self) -> t.Self:
