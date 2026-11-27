@@ -1056,6 +1056,49 @@ def test_deepcopy_preserves_slotted_subclass_state(bi_t: BT[t.Any, t.Any]) -> No
 
 
 @pytest.mark.parametrize('bi_t', bidict_types)
+def test_deepcopy_preserves_private_slotted_subclass_state(bi_t: BT[t.Any, t.Any]) -> None:
+    """State held in a private __slots__ entry (stored under its mangled name) survives deepcopy."""
+
+    class Tagged(bi_t):  # type: ignore[valid-type, misc]
+        __slots__ = ('__tag',)
+
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.__tag = ['default']
+
+        def __reduce__(self) -> tuple[t.Any, ...]:
+            return type(self), (dict(self),), (None, {'_Tagged__tag': self.__tag})
+
+    bi = Tagged({1: 'one'})
+    bi._Tagged__tag = ['edited']
+    cp = deepcopy(bi)
+    assert cp._Tagged__tag == ['edited']
+    assert cp._Tagged__tag is not bi._Tagged__tag
+    assert '_Tagged__tag' not in cp.__dict__
+    assert dict(cp) == dict(bi)
+    assert cp.inverse.inverse is cp
+
+
+@pytest.mark.parametrize('bi_t', bidict_types)
+def test_deepcopy_preserves_inherited_private_slot(bi_t: BT[t.Any, t.Any]) -> None:
+    """A private slot declared on a base class (including one with a leading underscore) survives deepcopy."""
+
+    class _Base(bi_t):  # type: ignore[valid-type, misc]
+        __slots__ = ('__tag',)
+
+    class Sub(_Base):
+        __slots__ = ()
+
+    bi = Sub({1: 'one'})
+    bi._Base__tag = ['edited']
+    cp = deepcopy(bi)
+    assert cp._Base__tag == ['edited']
+    assert cp._Base__tag is not bi._Base__tag
+    assert dict(cp) == dict(bi)
+    assert cp.inverse.inverse is cp
+
+
+@pytest.mark.parametrize('bi_t', bidict_types)
 @pytest.mark.parametrize('inverse_first', [False, True])
 def test_deepcopy_preserves_shared_inverse(bi_t: BT[t.Any, t.Any], inverse_first: bool) -> None:
     bi = bi_t({1: -1, 2: -2})

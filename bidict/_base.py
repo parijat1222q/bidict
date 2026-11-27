@@ -721,10 +721,18 @@ class BidictBase(BidirectionalMapping[KT, VT]):
             if isinstance(slots, str):
                 slots = (slots,)
             for slot in slots:
-                if slot in ('__dict__', '__weakref__') or slot in _INTERNAL_ATTRS or slot in slotted:
+                if slot in ('__dict__', '__weakref__') or slot in _INTERNAL_ATTRS:
                     continue
-                if hasattr(self, slot):
-                    slotted[slot] = getattr(self, slot)
+                # A private slot name (``__tag``) is stored under its mangled form
+                # (``_ClassName__tag``) on the class that declared it, so look the
+                # attribute up under the mangled name.
+                if slot.startswith('__') and not slot.endswith('__'):
+                    cls_name = cls.__name__.lstrip('_')
+                    if cls_name:
+                        slot = f'_{cls_name}{slot}'
+                if slot in slotted or not hasattr(self, slot):
+                    continue
+                slotted[slot] = getattr(self, slot)
         for slot, value in deepcopy(slotted, memo).items():
             setattr(inst, slot, value)
         return inst
